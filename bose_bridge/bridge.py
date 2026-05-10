@@ -237,6 +237,10 @@ def main():
         didl = build_didl(url, entry)
         print(f"[play] preset {n} -> {url}")
         try:
+            try:
+                av.Stop(InstanceID=0)
+            except Exception:
+                pass
             av.SetAVTransportURI(InstanceID=0, CurrentURI=url, CurrentURIMetaData=didl)
             av.Play(InstanceID=0, Speed="1")
         except Exception as e:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1
+
+- Stop the speaker before each SetAVTransportURI so the DIDL-Lite
+  metadata (station name + favicon) lands cleanly in `now_playing` even
+  when the press came from a physical preset button that started
+  loading a stale on-device source first (TuneIn / cached UPnP item).
+
 ## 1.3.0
 
 - **Speaker now displays the station name and logo.** Each `Play` call
