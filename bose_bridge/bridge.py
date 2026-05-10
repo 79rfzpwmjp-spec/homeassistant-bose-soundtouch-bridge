@@ -28,6 +28,8 @@ import paho.mqtt.client as mqtt
 import upnpclient
 import websocket
 
+import xml.etree.ElementTree as _ET
+
 OPTIONS_PATH = "/data/options.json"
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN")
 SUPERVISOR_URL = "http://supervisor"
@@ -98,11 +100,14 @@ def fetch_speaker_info(host: str) -> tuple[str, str, str]:
     return device_id, (name.group(1) if name else "SoundTouch"), (model.group(1) if model else "SoundTouch")
 
 
-def get_av_service(host: str, device_id: str):
+def get_upnp_services(host: str, device_id: str):
+    """Return (av_transport, rendering_control) for the given speaker."""
     desc_url = f"http://{host}:8091/XD/BO5EBO5E-F00D-F00D-FEED-{device_id}.xml"
     print(f"[upnp] description: {desc_url}")
     d = upnpclient.Device(desc_url)
-    return next(s for s in d.services if "AVTransport" in s.service_id)
+    av = next(s for s in d.services if "AVTransport" in s.service_id)
+    rc = next(s for s in d.services if "RenderingControl" in s.service_id)
+    return av, rc
 
 
 # ---------- radio-browser.info ---------------------------------------------
@@ -148,6 +153,80 @@ def build_didl(url: str, meta: dict) -> str:
         f'<res protocolInfo="http-get:*:audio/mpeg:*">{html.escape(url)}</res>'
         "</item></DIDL-Lite>"
     )
+
+
+# ---------- preset sync ----------------------------------------------------
+
+
+def _key(host: str, state: str, key: str):
+    """POST a key event to the SoundTouch /key endpoint."""
+    body = f'<key state="{state}" sender="Gabbo">{key}</key>'.encode()
+    req = urllib.request.Request(
+        f"http://{host}:8090/key",
+        data=body,
+        headers={"Content-Type": "application/xml"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception:
+        pass  # release_after_hold returns an XML-parse error but still saves
+
+
+def _current_preset_url(host: str, n: int) -> str | None:
+    try:
+        with urllib.request.urlopen(f"http://{host}:8090/presets", timeout=5) as r:
+            xml = r.read().decode()
+    except Exception:
+        return None
+    m = re.search(rf'<preset id="{n}"[^>]*>(.*?)</preset>', xml, re.DOTALL)
+    if not m:
+        return None
+    loc = re.search(r'location="([^"]+)"', m.group(1))
+    return loc.group(1) if loc else None
+
+
+def sync_presets(host: str, av, rc, presets: dict):
+    """Save each configured preset onto the speaker so physical button presses
+    fire the WebSocket event the bridge listens for. Skips slots already in
+    the right state. Mutes during the operation to hide audio blips."""
+    targets = {n: e["url"] for n, e in presets.items() if e.get("url")}
+    needed = {n: u for n, u in targets.items() if _current_preset_url(host, n) != u}
+    if not needed:
+        print("[sync] all configured presets already match the device — skipping")
+        return
+    print(f"[sync] {len(needed)}/{len(targets)} presets need writing: {sorted(needed)}")
+
+    saved_vol = int(rc.GetVolume(InstanceID=0, Channel="Master")["CurrentVolume"])
+    rc.SetMute(InstanceID=0, Channel="Master", DesiredMute="1")
+    try:
+        for n, url in needed.items():
+            try:
+                av.Stop(InstanceID=0)
+            except Exception:
+                pass
+            time.sleep(0.4)
+            # IMPORTANT: empty CurrentURIMetaData. With DIDL, the speaker
+            # marks the now-playing item as isPresetable="false" and silently
+            # ignores the long-press save. The bridge applies DIDL at runtime.
+            av.SetAVTransportURI(InstanceID=0, CurrentURI=url, CurrentURIMetaData="")
+            av.Play(InstanceID=0, Speed="1")
+            time.sleep(3.5)
+            _key(host, "press", f"PRESET_{n}")
+            time.sleep(0.8)
+            _key(host, "release_after_hold", f"PRESET_{n}")
+            time.sleep(2.0)
+            stored = _current_preset_url(host, n)
+            if stored == url:
+                print(f"[sync]  ✓ preset {n} -> {url}")
+            else:
+                print(f"[sync]  ✗ preset {n} did not stick (now: {stored})")
+        try:
+            av.Stop(InstanceID=0)
+        except Exception:
+            pass
+    finally:
+        rc.SetMute(InstanceID=0, Channel="Master", DesiredMute="0")
+        print(f"[sync] unmuted, volume {saved_vol}")
 
 
 # ---------- MQTT -----------------------------------------------------------
@@ -226,7 +305,13 @@ def main():
         presets[n] = {"url": url, **meta}
         print(f"[meta] preset {n}: {url} -> {meta or '(no metadata found)'}")
 
-    av = get_av_service(host, device_id)
+    av, rc = get_upnp_services(host, device_id)
+
+    if cfg.get("sync_presets_on_startup", True):
+        try:
+            sync_presets(host, av, rc, presets)
+        except Exception as e:
+            print(f"[sync] failed: {e}")
 
     def play_preset(n: int):
         entry = presets.get(n)

@@ -40,14 +40,24 @@ the firmware.
    or set it to the speaker's IP address (e.g. `192.168.1.42`).
 4. Fill in `preset_1_url` … `preset_6_url` with the stream URLs you want
    each preset button to play. Leave any unused slots blank.
-5. **Save** → **Start** → check the **Log** tab; it should print
+5. Leave `sync_presets_on_startup` enabled (default). On startup, the
+   add-on writes each configured URL into the speaker's matching preset
+   slot — required so physical button presses emit the WebSocket event
+   the bridge listens for. Skip-when-equal makes restarts cheap.
+6. **Save** → **Start** → check the **Log** tab; it should print
    ```
    [cfg] preset map: ...
    [upnp] description: http://...
+   [sync] all configured presets already match the device — skipping
    [ws] connected to ws://...:8080
    ```
 
 Press a preset button on the speaker and the radio should kick in.
+
+For HA control: with the Mosquitto Broker add-on running and the MQTT
+integration configured in HA Core, six `button.bose_<id>_preset_N`
+entities auto-appear via MQTT discovery. Pressing one in HA UI /
+automations / scripts plays the same URL the physical button would.
 
 ## Example URLs (Belgian / Flemish radio)
 

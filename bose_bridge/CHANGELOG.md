@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0
+
+- **Auto-sync presets to the speaker on startup.** New
+  `sync_presets_on_startup` option (default `true`). The add-on writes
+  each configured URL onto the speaker's preset slot so physical button
+  presses always emit a `nowSelectionUpdated` event for the bridge to
+  intercept. Without this, factory-reset speakers leave preset slots
+  empty and physical button presses become silent no-ops.
+- The sync skips slots that already match the configured URL, mutes the
+  speaker during the write to hide the audio blip, and verifies each
+  save took effect.
+- IMPORTANT firmware quirk: the SoundTouch firmware refuses to save
+  preset items that carry DIDL-Lite metadata (it sets
+  `isPresetable="false"`). The sync therefore writes presets without
+  metadata; runtime playback still applies full DIDL via
+  `SetAVTransportURI` so the speaker shows the station name and logo.
+
 ## 1.3.1
 
 - Stop the speaker before each SetAVTransportURI so the DIDL-Lite

@@ -1,6 +1,6 @@
 name: "Bose SoundTouch Bridge"
 description: "Brings preset buttons back to life on Bose SoundTouch speakers after the Bose cloud retirement (2026). Maps each preset to a stream URL and pushes via local UPnP."
-version: "1.3.1"
+version: "1.4.0"
 slug: "bose_bridge"
 url: "https://github.com/sandervg/homeassistant-bose-soundtouch-bridge"
 init: false
@@ -14,6 +14,7 @@ services:
   - mqtt:need
 options:
   bose_host: ""
+  sync_presets_on_startup: true
   preset_1_url: ""
   preset_2_url: ""
   preset_3_url: ""
@@ -22,6 +23,7 @@ options:
   preset_6_url: ""
 schema:
   bose_host: str
+  sync_presets_on_startup: bool
   preset_1_url: str
   preset_2_url: str
   preset_3_url: str
